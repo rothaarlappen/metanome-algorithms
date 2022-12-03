@@ -21,6 +21,7 @@ import de.metanome.algorithm_integration.result_receiver.ColumnNameMismatchExcep
 import de.metanome.algorithm_integration.result_receiver.CouldNotReceiveResultException;
 import de.metanome.algorithm_integration.result_receiver.InclusionDependencyResultReceiver;
 import de.metanome.algorithm_integration.results.InclusionDependency;
+import de.metanome.algorithm_integration.results.PartialInclusionDependency;
 import de.metanome.algorithms.spider.structures.Attribute;
 import de.uni_potsdam.hpi.dao.DataAccessObject;
 import de.uni_potsdam.hpi.utils.CollectionUtils;
@@ -40,6 +41,8 @@ public class SPIDER {
 	protected String databaseName = null;
 	protected String tempFolderPath = "SPIDER_temp"; // TODO: Use Metanome temp file functionality here (interface TampFileAlgorithm)
 	protected boolean cleanTemp = true;
+
+	protected int maxNumberOfMissingValues = 0;
 	protected int inputRowLimit = -1;
 	protected int memoryCheckFrequency = 100;
 	protected int maxMemoryUsagePercentage = 60;
@@ -86,6 +89,7 @@ public class SPIDER {
 				"availableMemory: " + this.availableMemory + " byte (spilled when exeeding " + this.maxMemoryUsage + " byte)\r\n\t" +
 				"memoryCheckFrequency: " + this.memoryCheckFrequency + "\r\n\t" +
 				"cleanTemp: " + this.cleanTemp + "\r\n\t" +
+				"maxNumberOfMissingValues: " + this.maxNumberOfMissingValues + "\r\n\t" +
 				"numUnaryINDs: " + this.numUnaryINDs + "\r\n" +
 			"statisticTime: " + this.statisticTime + "\r\n" +
 			"loadTime: " + this.loadTime + "\r\n" +
@@ -104,7 +108,7 @@ public class SPIDER {
 	public void execute() throws AlgorithmExecutionException {
 		// Initialize temp folder
 		this.tempFolder = new File(this.tempFolderPath + File.separator + "temp");
-		
+
 		// Clean temp if there are files from previous runs that may pollute this run
 		FileUtils.cleanDirectory(this.tempFolder);
 		
@@ -136,9 +140,6 @@ public class SPIDER {
 			this.outputTime = System.currentTimeMillis();
 			this.output();
 			this.outputTime = System.currentTimeMillis() - this.outputTime;
-			
-			System.out.println(this.toString());
-			System.out.println();
 		}
 		catch (IOException e) {
 			e.printStackTrace();
@@ -155,7 +156,7 @@ public class SPIDER {
 			// Clean temp
 			if (this.cleanTemp)
 				FileUtils.cleanDirectory(this.tempFolder);
-		}		
+		}
 	}
 	
 	private void collectStatistics() throws InputGenerationException, AlgorithmConfigurationException {
@@ -219,7 +220,6 @@ public class SPIDER {
 	
 	protected void initializeAttributes() throws AlgorithmExecutionException {
 		this.numColumns = this.columnNames.size();
-		
 		this.attributeId2attributeObject = new Int2ObjectOpenHashMap<Attribute>(this.numColumns);
 		this.attributeObjectQueue = new PriorityQueue<Attribute>(this.numColumns);
 		
@@ -230,9 +230,9 @@ public class SPIDER {
 			for (int attribute = firstAttribute; attribute < lastAttribute; attribute++) {
 				Attribute spiderAttribute;
 				if (this.databaseConnectionGenerator != null)
-					spiderAttribute = new Attribute(attribute, this.columnTypes, this.databaseConnectionGenerator, this.inputRowLimit, this.dao, this.tableNames[table], this.columnNames.get(attribute), this.tempFolder);
+					spiderAttribute = new Attribute(attribute, this.columnTypes, this.databaseConnectionGenerator, this.inputRowLimit, this.dao, this.tableNames[table], this.columnNames.get(attribute), this.tempFolder, this.maxNumberOfMissingValues);
 				else
-					spiderAttribute = new Attribute(attribute, this.columnTypes, this.fileInputGenerator[table], this.inputRowLimit, attribute - firstAttribute, this.tempFolder, this.maxMemoryUsage, this.memoryCheckFrequency);
+					spiderAttribute = new Attribute(attribute, this.columnTypes, this.fileInputGenerator[table], this.inputRowLimit, attribute - firstAttribute, this.tempFolder, this.maxMemoryUsage, this.memoryCheckFrequency, this.maxNumberOfMissingValues);
 				this.attributeId2attributeObject.put(attribute, spiderAttribute);
 				
 				if (!spiderAttribute.hasFinished())
@@ -243,19 +243,26 @@ public class SPIDER {
 	
 	protected void calculateINDs() throws IOException {
 		IntArrayList topAttributes = new IntArrayList(this.numColumns);
+		// while heap isnt empty
 		while (!this.attributeObjectQueue.isEmpty()) {
+			/* get attributes with minimum value */
 			Attribute topAttribute = this.attributeObjectQueue.remove();
 			topAttributes.add(topAttribute.getAttributeId());
 			while ((!this.attributeObjectQueue.isEmpty()) && topAttribute.getCurrentValue().equals(this.attributeObjectQueue.peek().getCurrentValue()))
 				topAttributes.add(this.attributeObjectQueue.remove().getAttributeId());
-			
+
+			/* notify dependent attribute  */
 			for (int attribute : topAttributes)
 				this.attributeId2attributeObject.get(attribute).intersectReferenced(topAttributes, this.attributeId2attributeObject);
-			
+
+			/*process next value*/
+			/* foreach att in min do */
 			for (int attribute : topAttributes) {
 				Attribute spiderAttribute = this.attributeId2attributeObject.get(attribute);
+				/* att.movePointer */
 				spiderAttribute.nextValue();
 				if (!spiderAttribute.hasFinished())
+					/* heap.add(att) */
 					this.attributeObjectQueue.add(spiderAttribute);
 			}
 			
@@ -278,8 +285,12 @@ public class SPIDER {
 			for (int ref : dep2ref.get(dep)) {
 				String refTableName = this.getTableNameFor(ref, this.tableColumnStartIndexes);
 				String refColumnName = this.columnNames.get(ref);
+
+				Attribute depAtt = this.attributeId2attributeObject.get(dep);
+
+				int missingValues = depAtt.getMissingValuesCounter()[ref];
 				
-				this.resultReceiver.receiveResult(new InclusionDependency(new ColumnPermutation(new ColumnIdentifier(depTableName, depColumnName)), new ColumnPermutation(new ColumnIdentifier(refTableName, refColumnName))));
+				this.resultReceiver.receiveResult(new PartialInclusionDependency(new ColumnPermutation(new ColumnIdentifier(depTableName, depColumnName)), new ColumnPermutation(new ColumnIdentifier(refTableName, refColumnName)),missingValues));
 				this.numUnaryINDs++;
 			}
 		}

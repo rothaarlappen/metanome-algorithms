@@ -29,11 +29,18 @@ public class Attribute implements Comparable<Attribute>, Closeable {
 	protected IntLinkedOpenHashSet dependents;
 
 	protected BufferedReader valueReader;
+
+	private int[] missingValuesCounter;
+	private int maxNumberOfMissingValues;
+
 	
-	public Attribute(int attributeId, List<String> attributeTypes, DatabaseConnectionGenerator inputGenerator, int inputRowLimit, DataAccessObject dao, String tableName, String attributeName, File tempFolder) throws AlgorithmExecutionException {
+	public Attribute(int attributeId, List<String> attributeTypes, DatabaseConnectionGenerator inputGenerator, int inputRowLimit, DataAccessObject dao, String tableName, String attributeName, File tempFolder, int maxMissingValues) throws AlgorithmExecutionException {
 		this.attributeId = attributeId;
 		
 		int numAttributes = attributeTypes.size();
+		missingValuesCounter = new int[numAttributes];
+		this.maxNumberOfMissingValues = maxMissingValues;
+
 		this.referenced = new IntLinkedOpenHashSet(numAttributes);
 		this.dependents = new IntLinkedOpenHashSet(numAttributes);
 		for (int i = 0; i < numAttributes; i++) {
@@ -89,10 +96,15 @@ public class Attribute implements Comparable<Attribute>, Closeable {
 		}
 	}
 
-	public Attribute(int attributeId, List<String> attributeTypes, RelationalInputGenerator inputGenerator, int inputRowLimit, int relativeAttributeIndex, File tempFolder, long maxMemoryUsage, int memoryCheckFrequency) throws AlgorithmExecutionException {
+	public Attribute(int attributeId, List<String> attributeTypes, RelationalInputGenerator inputGenerator, int inputRowLimit, int relativeAttributeIndex, File tempFolder, long maxMemoryUsage, int memoryCheckFrequency, int maxMissingValues) throws AlgorithmExecutionException {
 		this.attributeId = attributeId;
 		
 		int numAttributes = attributeTypes.size();
+
+		missingValuesCounter = new int[numAttributes];
+		this.maxNumberOfMissingValues = maxMissingValues;
+
+
 		this.referenced = new IntLinkedOpenHashSet(numAttributes);
 		this.dependents = new IntLinkedOpenHashSet(numAttributes);
 		for (int i = 0; i < numAttributes; i++) {
@@ -125,6 +137,8 @@ public class Attribute implements Comparable<Attribute>, Closeable {
 		return this.currentValue;
 	}
 
+	public int[] getMissingValuesCounter() {return this.missingValuesCounter;}
+
 	public IntLinkedOpenHashSet getReferenced() {
 		return this.referenced;
 	}
@@ -150,9 +164,12 @@ public class Attribute implements Comparable<Attribute>, Closeable {
 			
 			if (referencedAttributes.contains(referenced))
 				continue;
-			
-			referencedIterator.remove();
-			attributeMap.get(referenced).removeDependent(this.attributeId);
+
+			missingValuesCounter[referenced]++;
+			if(missingValuesCounter[referenced] > this.maxNumberOfMissingValues) {
+				referencedIterator.remove();
+				attributeMap.get(referenced).removeDependent(this.attributeId);
+			}
 		}
 	}
 	

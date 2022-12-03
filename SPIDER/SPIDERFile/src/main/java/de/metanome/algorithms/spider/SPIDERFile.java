@@ -30,7 +30,7 @@ public class SPIDERFile extends SPIDER implements InclusionDependencyAlgorithm, 
 	}
 	
 	public enum Identifier {
-		INPUT_FILES, INPUT_ROW_LIMIT, TEMP_FOLDER_PATH, CLEAN_TEMP, MEMORY_CHECK_FREQUENCY, MAX_MEMORY_USAGE_PERCENTAGE
+		INPUT_FILES, INPUT_ROW_LIMIT, TEMP_FOLDER_PATH, CLEAN_TEMP, MEMORY_CHECK_FREQUENCY, MAX_MEMORY_USAGE_PERCENTAGE, MAX_NUMBER_MISSING_VALUES
 	};
 	
 	@Override
@@ -69,7 +69,15 @@ public class SPIDERFile extends SPIDER implements InclusionDependencyAlgorithm, 
 		cleanTemp.setDefaultValues(defaultCleanTemp);
 		cleanTemp.setRequired(true);
 		configs.add(cleanTemp);
-		
+
+
+		ConfigurationRequirementInteger maxNumberOfMissingValues = new ConfigurationRequirementInteger(Identifier.MAX_NUMBER_MISSING_VALUES.name());
+		Integer[] defaultMaxNumberOfMissingValues = new Integer[1];
+		defaultMaxNumberOfMissingValues[0] = Integer.valueOf(this.maxNumberOfMissingValues);
+		maxNumberOfMissingValues.setDefaultValues(defaultMaxNumberOfMissingValues);
+		maxNumberOfMissingValues.setRequired(true);
+		configs.add(maxNumberOfMissingValues);
+
 		return configs;
 	}
 
@@ -117,6 +125,11 @@ public class SPIDERFile extends SPIDER implements InclusionDependencyAlgorithm, 
 			if (values[0].intValue() <= 0)
 				throw new AlgorithmConfigurationException(SPIDERFile.Identifier.MAX_MEMORY_USAGE_PERCENTAGE.name() + " must be greater than 0!");
 			this.maxMemoryUsagePercentage = values[0].intValue();
+		}
+		else if (Identifier.MAX_NUMBER_MISSING_VALUES.name().equals(identifier)) {
+			if (values[0].intValue() < 0 )
+				throw new AlgorithmConfigurationException(Identifier.MAX_NUMBER_MISSING_VALUES.name() + " must be greater or equal 0!");
+			this.maxNumberOfMissingValues = values[0].intValue();
 		}
 		else 
 			this.handleUnknownConfiguration(identifier, CollectionUtils.concat(values, ","));
